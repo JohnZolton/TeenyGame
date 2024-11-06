@@ -1,0 +1,283 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("POSTGRES_PRISMA_URL") // uses connection pooling
+  directUrl = env("POSTGRES_URL_NON_POOLING") // uses a direct connection
+}
+
+model Example {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Necessary for Next auth
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? // @db.Text
+  access_token      String? // @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? // @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  isSearchSubscribed Boolean @default(false)
+  isIdsSubscribed Boolean @default(false)
+  stripeCustomerId String? @unique
+  stripeSearchSubscriptionId String?  @unique
+  stripeIDSSubscriptionId   String?  @unique
+  stripeSearchPeriodEnd     DateTime?
+  stripeIDSPeriodEnd        DateTime?
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+
+model OAReport {
+  id       String       @id @default(uuid()) @unique
+  date     DateTime  @default(now())
+  stripeTxId  String? @unique
+  completed Boolean @default(false)
+  paid Boolean @default(false)
+  orderTime DateTime @default(now())
+  userID   String
+  rawFeatures RawFeatureItem[]
+  features FeatureItem[]
+  files Reference[]
+  convoId Int?
+  convo Convo? 
+  @@index([userID, stripeTxId, id])
+}
+model RawFeatureItem {
+  id       Int      @id @default(autoincrement())
+  feature  String @db.Text()
+  reportID String
+  oaReport OAReport @relation(fields: [reportID], references: [id], onDelete: Cascade)
+  @@index([reportID])
+}
+model FeatureItem {
+  id       Int      @id @default(autoincrement())
+  userId String
+  feature  String @db.Text()
+  analyses Analysis[] @relation("FeatureAnalyses")
+  reportID String
+  completed Boolean @default(false)
+  oaReport OAReport @relation(fields: [reportID], references: [id] , onDelete: Cascade)
+
+  @@index([reportID])
+}
+model Analysis{
+  id       Int      @id @default(autoincrement())
+  conclusion  String @db.Text()
+  quote String? @db.Text()
+  source   String? @db.Text()
+  page Int?
+  featureItemId Int?
+  feature FeatureItem? @relation("FeatureAnalyses", fields: [featureItemId], references: [id], onDelete: Cascade)
+  @@index([featureItemId])
+}
+
+model Convo {
+  id       Int      @id @default(autoincrement()) @unique
+  reportId String @unique
+  report OAReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  messages Message[]  
+  @@index([reportId])
+}
+
+model Message {
+  id       Int      @id @default(autoincrement())
+  date     DateTime  @default(now())
+  query String @db.Text()
+  convoId Int
+  convo Convo @relation(fields: [convoId], references: [id], onDelete: Cascade)
+  result Result[]
+  @@index([convoId])
+}
+model Result {
+  id       Int      @id @default(autoincrement())
+  anticipated Boolean
+  messageId Int
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  cites Citation[]  
+  @@index([messageId])
+}
+
+model Citation {
+  id       Int      @id @default(autoincrement())
+  name String
+  page Int
+  resultId Int
+  result Result @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  @@index([resultId])
+}
+
+
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  FAILED
+  SUCCESS
+}
+
+model UploadFile {
+  id        String      @id @default(cuid())
+  title     String
+  userId  String
+  uploadStatus UploadStatus @default(PENDING)
+  url String
+  key String
+  @@index([userId, key])
+}
+model Reference {
+  id        String      @id @default(cuid())
+  reportId  String
+  title String
+  userId  String
+  key String
+  report    OAReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  @@index([reportId, userId])
+}
+
+
+
+
+
+// Liftr Stuff
+
+model WorkoutPlan {
+  planId      String          @id @default(cuid())
+  date        DateTime        @default(now())
+  userId      String
+  description String
+  workouts    Workout[]
+
+  @@index([userId, planId])
+}
+
+model Workout {
+  workoutId         String           @id @default(cuid())
+  date              DateTime         @default(now())
+  nominalDay        String
+  userId            String
+  description       String
+  exercises         Exercise[]
+  workoutNumber     Int?
+  planId            String?
+  isCompleted       Boolean @default(false)
+  isActive Boolean @default(true)
+  plan              WorkoutPlan?  @relation(fields: [planId], references: [planId], onDelete: Cascade)
+  originalWorkoutId String?
+
+  @@index([userId])
+  @@index([date])
+  @@index([planId])
+  @@index([workoutId])
+}
+
+model Exercise {
+  exerciseId  String        @id @default(cuid())
+  date        DateTime      @default(now())
+  description String
+  sets        exerciseSet[]
+  exerciseOrder Int
+  muscleGroup MuscleGroup
+  workoutId String
+  temporary Boolean @default(false)
+  active Boolean @default(true)
+  deleted Boolean @default(false)
+  priorExerciseId String?
+  feedbackRecorded Boolean @default(false)
+  note String?
+  pump Pump?
+  RPE RPE?
+  workout   Workout @relation(fields: [workoutId], references: [workoutId], onDelete: Cascade)
+  isCardio Boolean @default(false)
+  duration Int?
+  targetDuration Int?
+
+  @@index([workoutId])
+}
+
+enum MuscleGroup {
+  Chest
+  Triceps
+  Back
+  Biceps
+  Shoulders
+  Abs
+  Quads
+  Glutes
+  Hamstrings
+  Calves
+  Cardio
+}
+enum Pump {
+  low
+  medium
+  high
+  veryHigh
+}
+ enum RPE {
+  easy
+  medium
+  hard
+  veryHard
+ }
+
+
+model exerciseSet {
+  setId      String         @id @default(cuid())
+  date       DateTime       @default(now())
+  exerciseId String
+  weight     Int?
+  targetWeight     Int?
+  reps       Int?
+  targetReps Int?
+  isActive Boolean @default(true)
+  rir        Int?
+  setNumber  Int
+  exercise   Exercise @relation(fields: [exerciseId], references: [exerciseId], onDelete: Cascade)
+  lastSetId  String?        
+  priorSet   exerciseSet?   @relation("SetRelation", fields: [lastSetId], references: [setId], onDelete: NoAction)
+  nextSet    exerciseSet[]   @relation("SetRelation")
+
+  @@index([exerciseId, setId])
+}
