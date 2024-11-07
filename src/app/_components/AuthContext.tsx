@@ -48,8 +48,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const isLiveMode = process.env.NODE_ENV === "production";
 
     const authUrl = `https://${
-      isLiveMode ? (process.env.AUTH_URL ?? "liftr.club") : "localhost:3000"
-    }/api/authenticate`;
+      isLiveMode ? (process.env.AUTH_URL ?? "teenygame") : "localhost:3000"
+    }/api/auth/extension`;
     const event = await nostr.signEvent({
       kind: 27235,
       created_at: Math.floor(Date.now() / 1000),
@@ -61,16 +61,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     const base64Event = Buffer.from(JSON.stringify(event)).toString("base64");
-    const response = await fetch("/api/authenticate", {
+    const response = await fetch("/api/auth/extension", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ signedEvent: base64Event }),
     });
-    if (!response.ok) {
-      throw new Error("failed to authenticate");
-    }
     interface AuthResponse {
       token: string;
     }

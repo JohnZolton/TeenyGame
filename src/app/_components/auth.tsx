@@ -50,7 +50,7 @@ export function SignInButton() {
   async function handleSignIn() {
     try {
       const token = await authWithNostr();
-      void router.push("/home");
+      void router.push("/games");
     } catch (error) {
       console.error("Auth failed: ", error);
     }
