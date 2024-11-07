@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { validateEvent } from "nostr-tools";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
+const JWT_SECRET = process.env.JWT_SECRET ?? "your_jwt_secret";
 
 export async function GET(request: NextRequest) {
   console.log([...request.nextUrl.searchParams.entries()]);
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   console.log(event);
 
   try {
-    const decodedEvent = decodeURIComponent(event as string);
+    const decodedEvent = decodeURIComponent(event! as string);
     console.log(decodedEvent);
 
     if (!decodedEvent || typeof decodedEvent !== "string") {

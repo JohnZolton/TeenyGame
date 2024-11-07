@@ -100,10 +100,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const decodedToken = jwtDecode<JwtPayload>(token);
       const currentTime = Date.now() / 1000;
-      if (decodedToken && decodedToken.exp !== undefined) {
-        return decodedToken.exp > currentTime;
-      }
-      return false;
+      return decodedToken?.exp !== undefined
+        ? decodedToken.exp > currentTime
+        : false;
     } catch (error) {
       console.error(error);
       return false;

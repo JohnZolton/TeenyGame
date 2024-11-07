@@ -1,22 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 
-// Game state interface
-interface GameState {
-  players: {
-    [playerId: string]: {
-      birdY: number;
-      velocity: number;
-      score: number;
-    };
-  };
-  obstacles: Array<{
-    x: number;
-    gapY: number;
-  }>;
-  gameStatus: "waiting" | "playing" | "ended";
-}
-
 const FlappyBirdGame = () => {
   const [birdPosition, setBirdPosition] = useState(250);
   const [gameStarted, setGameStarted] = useState(false);
