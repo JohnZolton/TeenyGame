@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   console.log(event);
 
   try {
-    const decodedEvent = decodeURIComponent(event! as string);
+    const decodedEvent = decodeURIComponent(event!);
     console.log(decodedEvent);
 
     if (!decodedEvent || typeof decodedEvent !== "string") {
