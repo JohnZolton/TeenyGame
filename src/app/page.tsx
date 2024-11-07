@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { api, HydrateClient } from "~/trpc/server";
+import { SignedOut, SignInButton, SignInButtonAmber } from "./_components/auth";
 
 export default async function Home() {
   return (
@@ -12,11 +13,17 @@ export default async function Home() {
         <div className="flex flex-col">
           <div>Map:</div>
           <div className="pl-4">Auth with Nostr</div>
-          <div className="pl-4">Make a game (worlde?)</div>
+          <div className="pl-4">
+            Make a game (probs head-to-head flappy bird)
+          </div>
           <div className="pl-8">Find partner</div>
           <div className="pl-8">Play game</div>
           <div className="pl-8">Bet sats</div>
         </div>
+        <SignedOut>
+          <SignInButton />
+          <SignInButtonAmber />
+        </SignedOut>
       </div>
     </main>
   );

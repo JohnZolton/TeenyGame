@@ -2,7 +2,7 @@
 
 ### P2P Gaming on Nostr and Lightning
 
-TeenyGame is a peer-to-peer gaming platform leveraging [Nostr](https://github.com/nostr-protocol) for authentication and [Lightning Network](https://lightning.network/) for sats betting. The project aims to provide make Nostr more fun.
+TeenyGame is a peer-to-peer gaming platform leveraging [Nostr](https://github.com/nostr-protocol) for authentication and [Lightning Network](https://lightning.network/) for sats betting. The project is to make Nostr more fun.
 
 ## Development Roadmap
 
