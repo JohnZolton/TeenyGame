@@ -281,3 +281,25 @@ model exerciseSet {
 
   @@index([exerciseId, setId])
 }
+
+
+enum GameStatus {
+  waiting
+  inProgress
+  finished
+}
+model game {
+  id  Int @id @default(autoincrement())
+  players player[]
+  status GameStatus
+  gameName String
+}
+
+model player {
+  id String @id @default(uuid())
+  npub String
+  gameId Int
+  game game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  name String?
+  image String?
+}

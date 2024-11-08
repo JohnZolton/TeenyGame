@@ -57,7 +57,7 @@ export const NavBar = () => {
                 <div className="font-semibold">{displayName}</div>
               </DropdownMenuItem>
               <DropdownMenuItem>
-                <Link href={"/home"} className="">
+                <Link href={"/"} className="">
                   Home
                 </Link>
               </DropdownMenuItem>

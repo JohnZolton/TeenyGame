@@ -6,9 +6,7 @@ TeenyGame is a peer-to-peer gaming platform leveraging [Nostr](https://github.co
 
 ## Development Roadmap
 
-**Current status**: Initial setup
-
-- [ ] Nostr authentication integration
+- [x] Nostr authentication integration
 - [ ] Make a fun game (Wordle? PvP Flappy Bird? Poker? will start with something easy)
 - [ ] Lobby
 - [ ] Private/public matches

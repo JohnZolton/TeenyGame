@@ -7,6 +7,7 @@ import SignedIn, {
   SignInButtonAmber,
 } from "./_components/auth";
 import NavBar from "./_components/navmenu";
+import { buttonVariants } from "~/components/ui/button";
 
 export default async function Home() {
   return (
@@ -31,7 +32,12 @@ export default async function Home() {
           <SignInButtonAmber />
         </SignedOut>
         <SignedIn>
-          <Link href={"/games"}>Go to Lobby</Link>
+          <Link
+            className={buttonVariants({ variant: "default" })}
+            href={"/games"}
+          >
+            Go to Lobby
+          </Link>
         </SignedIn>
       </div>
     </main>
