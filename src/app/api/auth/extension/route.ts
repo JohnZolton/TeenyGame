@@ -56,9 +56,7 @@ export async function POST(request: NextRequest) {
 
     const isGood = validateEvent(rawEvent);
     if (isGood) {
-      const token = jwt.sign({ pubkey: rawEvent.pubkey }, JWT_SECRET, {
-        expiresIn: "2h",
-      });
+      const token = jwt.sign({ pubkey: rawEvent.pubkey }, JWT_SECRET, {});
       return NextResponse.json(
         { token },
         {

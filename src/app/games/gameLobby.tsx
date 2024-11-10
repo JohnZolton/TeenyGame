@@ -1,4 +1,5 @@
 "use client";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 
@@ -6,6 +7,7 @@ export function GameLobby() {
   const [userNpub, setUserNpub] = useState<string | null>();
   const [displayName, setDisplayName] = useState<string | null>();
   const [imgUrl, setImgUrl] = useState<string | null>();
+  const router = useRouter();
   useEffect(() => {
     setUserNpub(localStorage.getItem("userNpub"));
     setImgUrl(localStorage.getItem("profileImage"));
@@ -13,7 +15,9 @@ export function GameLobby() {
   }, []);
   const { data: allGames } = api.game.getGames.useQuery();
 
-  const { mutate: newGame } = api.game.makeGame.useMutation();
+  const { mutate: newGame } = api.game.makeGame.useMutation({
+    onSuccess: (data) => void router.push(`games/${data.id}#init`),
+  });
   const { mutate: joinGame } = api.game.joinGame.useMutation();
 
   return (
@@ -21,20 +25,26 @@ export function GameLobby() {
       {allGames?.map((game) => (
         <div key={game.id} className="mb-4 rounded-lg border p-4">
           <h2 className="text-xl">Game {game.id}</h2>
-          {imgUrl && (
-            <div className="flex items-center justify-start">
-              <img
-                src={imgUrl}
-                className="h-10 w-10 rounded-full object-cover"
-              />
+          <p>Players:</p>
+          {game.players.map((player, index) => (
+            <div
+              key={`player-${index}`}
+              className="flex items-center justify-start"
+            >
+              {player.image && (
+                <img
+                  src={player.image}
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+              )}
+              <div>{player.name ?? player.npub}</div>
             </div>
-          )}
-          <p>{displayName}</p>
-          <p>Players: {game.players.length}</p>
+          ))}
           <button
-            onClick={() =>
-              joinGame({ gameId: game.id, playerId: "your-player-id" })
-            }
+            onClick={() => {
+              joinGame({ gameId: game.id, playerId: userNpub ?? "" });
+              router.push(`/games/${game.id}`);
+            }}
             className="mt-2 rounded bg-blue-500 px-4 py-2 hover:bg-blue-600"
           >
             Join Game

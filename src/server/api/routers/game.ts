@@ -71,6 +71,54 @@ export const gameRouter = createTRPCRouter({
       });
     }),
 
+  leaveGame: publicProcedure
+    .input(
+      z.object({
+        gameId: z.number(),
+        userId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { gameId, userId } = input;
+      return { success: true };
+
+      /*
+      // Find the game and associated players
+      const game = await ctx.db.game.findUnique({
+        where: { id: gameId },
+        include: { players: true },
+      });
+
+      if (!game) {
+        throw new Error("Game not found");
+      }
+
+      // Check if the player exists in the game
+      const playerExists = game.players.some((player) => player.id === userId);
+      if (!playerExists) {
+        throw new Error("Player not found in this game");
+      }
+
+      // Remove the player from the game
+      await ctx.db.player.delete({
+        where: { id: userId },
+      });
+
+      // Check if there are any players left in the game
+      const remainingPlayers = await ctx.db.player.count({
+        where: { gameId },
+      });
+
+      // If no players are left, delete the game
+      if (remainingPlayers === 0) {
+        await ctx.db.game.delete({
+          where: { id: gameId },
+        });
+      }
+
+      return { success: true };
+      */
+    }),
   finishGame: publicProcedure
     .input(
       z.object({

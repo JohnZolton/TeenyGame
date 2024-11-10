@@ -56,9 +56,7 @@ export async function GET(request: NextRequest) {
     console.log("ITS GOOD");
 
     if (isGood) {
-      const token = jwt.sign({ pubkey: rawEvent.pubkey }, JWT_SECRET, {
-        expiresIn: "2h",
-      });
+      const token = jwt.sign({ pubkey: rawEvent.pubkey }, JWT_SECRET, {});
 
       const html = `
         <!DOCTYPE html>
