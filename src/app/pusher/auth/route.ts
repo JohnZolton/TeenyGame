@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // dev dummy data
+    // dev dummy data, replace with nostr stuff
     const user = {
       id: `user_${Math.random().toString(36).substr(2, 9)}`,
       user_info: {

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import SimplePeer from "simple-peer";
 import { pusher, pusherClient } from "~/lib/pusher";
 import FlappyBirdGame from "./flappy-bird";
@@ -8,6 +8,7 @@ import { Button } from "~/components/ui/button";
 import { Channel } from "pusher-js";
 import Pusher from "pusher-js/types/src/core/pusher";
 import Members from "pusher-js";
+import { create } from "domain";
 
 interface GameRoomProps {
   gameid: string;
@@ -22,8 +23,9 @@ export default function GameRoom({ gameid }: GameRoomProps) {
   const [displayName, setDisplayName] = useState<string | null>();
   const [imgUrl, setImgUrl] = useState<string | null>();
   const [channel, setChannel] = useState<Channel | null>();
-
+  const [isFirstPlayer, setIsFirstPlayer] = useState(false);
   const { mutate: leaveGame } = api.game.leaveGame.useMutation();
+  const peerRef = useRef<SimplePeer.Instance | null>(null);
 
   useEffect(() => {
     const handleUnload = () => {
@@ -37,112 +39,136 @@ export default function GameRoom({ gameid }: GameRoomProps) {
     };
   }, [gameid, leaveGame, userNpub]);
 
+  // Set initial player role
   useEffect(() => {
-    console.log(
-      "Attempting to subscribe to channel:",
-      `presence-game-${gameid}`,
-    );
+    setIsFirstPlayer(window.location.hash === "#init");
+  }, []);
 
+  // Create and manage peer connection
+  const createPeer = useCallback(
+    (initiator: boolean) => {
+      console.log(`Creating peer as ${initiator ? "initiator" : "receiver"}`);
+
+      // Clean up any existing peer
+      if (peerRef.current) {
+        peerRef.current.destroy();
+      }
+
+      const newPeer = new SimplePeer({
+        initiator,
+        trickle: true,
+      });
+
+      // When we have connection data to send to the other peer
+      newPeer.on("signal", (signalData) => {
+        console.log("🚦 Generated signal data to send:", signalData);
+        channel?.trigger("client-signal", {
+          signalData,
+          fromFirstPlayer: isFirstPlayer,
+        });
+      });
+
+      newPeer.on("connect", () => {
+        console.log("🎉 Peer connection established!");
+        setConnected(true);
+        newPeer.send(
+          "Hello from " + (isFirstPlayer ? "first" : "second") + " player!",
+        );
+      });
+
+      type PeerData = string | Uint8Array;
+      type PeerError = Error;
+      newPeer.on("data", (data: PeerData) => {
+        console.log("📨 Received data:", data);
+      });
+
+      newPeer.on("error", (err: PeerError) => {
+        console.error("❌ Peer error:", err);
+      });
+
+      peerRef.current = newPeer;
+      setPeer(newPeer);
+      return newPeer;
+    },
+    [channel, isFirstPlayer],
+  );
+
+  // Set up Pusher channel and handle peer connection
+  useEffect(() => {
+    console.log("Setting up presence channel...");
     const channel = pusherClient.subscribe(`presence-game-${gameid}`);
 
-    // Log subscription attempt
-    channel.bind("pusher:subscription_pending", () => {
-      console.log("Subscription pending...");
-    });
+    channel.bind("pusher:subscription_succeeded", () => {
+      console.log("✅ Channel subscribed");
 
-    // Log successful subscription
-    channel.bind("pusher:subscription_succeeded", (members: Members) => {
-      console.log("Successfully subscribed!");
-      console.log("Current members:", members);
-    });
-
-    // Log subscription errors
-    channel.bind("pusher:subscription_error", (error: Error) => {
-      console.error("Subscription error:", error);
+      // If we're the first player and there are 2 members, initiate the connection
+      if (isFirstPlayer) {
+        console.log("First player creating initiator peer");
+        createPeer(true);
+      }
     });
 
     channel.bind("pusher:member_added", (member: Members) => {
-      console.log("Member joined:", member);
+      console.log("👋 Member joined:", member);
+      // If we're the second player, create our peer (non-initiator)
+      if (!isFirstPlayer) {
+        console.log("Second player creating receiver peer");
+        createPeer(false);
+      }
     });
 
-    channel.bind("pusher:member_removed", (member: Members) => {
-      console.log("Member left:", member);
+    // Handle incoming WebRTC signals
+    interface SignalData {
+      fromFirstPlayer: boolean;
+      signalData: SimplePeer.SignalData;
+    }
+    channel.bind("client-signal", (data: SignalData) => {
+      console.log(
+        "📡 Received signal from",
+        data.fromFirstPlayer ? "first" : "second",
+        "player",
+      );
+
+      // Only process signals from the other player
+      if (data.fromFirstPlayer !== isFirstPlayer && peerRef.current) {
+        console.log("Processing signal data");
+        peerRef.current.signal(data.signalData);
+      }
     });
 
-    type ClientTestData = {
-      msg: string;
-      timestamp: number;
-      sender: string;
-    };
-    channel.bind("client-test", (data: ClientTestData) => {
-      console.log("Received message:", data);
+    channel.bind("pusher:member_removed", () => {
+      console.log("👋 Member left");
+      if (peerRef.current) {
+        peerRef.current.destroy();
+      }
+      setConnected(false);
+      setPeer(null);
     });
-
-    // Log general connection state
-    pusherClient.connection.bind(
-      "state_change",
-      (states: { previous: string; current: string }) => {
-        console.log(
-          "Connection state changed:",
-          states.previous,
-          "->",
-          states.current,
-        );
-      },
-    );
 
     setChannel(channel);
 
     return () => {
-      console.log("Cleaning up channel subscription");
       channel.unbind_all();
       channel.unsubscribe();
+      if (peerRef.current) peerRef.current.destroy();
     };
-  }, [gameid]);
+  }, [gameid, isFirstPlayer, createPeer]);
 
-  function handleButtonClick() {
-    console.log("clicked");
-    if (channel) {
-      try {
-        channel.trigger("client-test", {
-          msg: "hello there",
-          timestamp: Date.now(),
-          sender: displayName ?? "unknown",
-        });
-        console.log("Message sent");
-      } catch (error) {
-        console.error("Error sending message:", error);
-      }
+  // Test button to verify connection
+  const sendTestMessage = () => {
+    if (peerRef.current?.connected) {
+      peerRef.current.send("Test message at " + new Date().toISOString());
     }
-  }
+  };
 
   return (
     <div className="relative h-[500px] w-full bg-sky-200">
-      <Button onClick={() => handleButtonClick()}>test</Button>
-      <div>{channel?.name}</div>
-      {connected ? (
-        <div>
-          {/* Local player (red circle) */}
-          <div
-            className="absolute h-8 w-8 rounded-full bg-red-500"
-            style={{ top: `${localPos.y}px`, left: "100px" }}
-          />
-
-          {/* Remote player (blue circle) */}
-          <div
-            className="absolute h-8 w-8 rounded-full bg-blue-500"
-            style={{ top: `${remotePos.y}px`, left: "300px" }}
-          />
-
-          <div className="absolute left-4 top-4 text-sm">
-            Use Up/Down arrows to move
-          </div>
-        </div>
-      ) : (
-        <div className="inset-0 flex items-center justify-center">
-          <p className="text-xl">Connecting to peer...</p>
-        </div>
-      )}
+      <div className="mb-4">
+        <div>Channel: {channel?.name}</div>
+        <div>Role: {isFirstPlayer ? "First Player" : "Second Player"}</div>
+        <div>Status: {connected ? "🟢 Connected" : "🔴 Disconnected"}</div>
+      </div>
+      <Button onClick={() => sendTestMessage()}>test</Button>
     </div>
   );
 }
