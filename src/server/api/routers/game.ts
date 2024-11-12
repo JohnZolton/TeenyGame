@@ -24,7 +24,7 @@ export const gameRouter = createTRPCRouter({
     .input(
       z.object({
         playerId: z.string(),
-        gameId: z.number(),
+        gameId: z.string(),
         image: z.string().optional(),
         name: z.string().optional(),
       }),
@@ -122,7 +122,7 @@ export const gameRouter = createTRPCRouter({
   finishGame: publicProcedure
     .input(
       z.object({
-        gameId: z.number(),
+        gameId: z.string(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

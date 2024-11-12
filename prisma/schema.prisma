@@ -289,7 +289,7 @@ enum GameStatus {
   finished
 }
 model game {
-  id  Int @id @default(autoincrement())
+  id  String @id @default(uuid())
   players player[]
   status GameStatus
   gameName String
@@ -298,7 +298,7 @@ model game {
 model player {
   id String @id @default(uuid())
   npub String
-  gameId Int
+  gameId String
   game game @relation(fields: [gameId], references: [id], onDelete: Cascade)
   name String?
   image String?

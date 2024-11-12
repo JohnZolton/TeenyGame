@@ -13,19 +13,33 @@ import { create } from "domain";
 interface GameRoomProps {
   gameid: string;
 }
+export interface Players {
+  [npub: string]: PlayerState;
+}
+export interface PlayerState {
+  y: number;
+  name: string | null;
+  picUrl: string | null;
+}
 
 export default function GameRoom({ gameid }: GameRoomProps) {
   const [peer, setPeer] = useState<SimplePeer.Instance | null>(null);
   const [connected, setConnected] = useState(false);
-  const [localPos, setLocalPos] = useState({ y: 250 });
-  const [remotePos, setRemotePos] = useState({ y: 250 });
+  const [remotePos, setRemotePos] = useState<Players>({});
   const [userNpub, setUserNpub] = useState<string | null>();
-  const [displayName, setDisplayName] = useState<string | null>();
-  const [imgUrl, setImgUrl] = useState<string | null>();
+  const displayName = localStorage.getItem("displayName");
+  const imgUrl = localStorage.getItem("profileImage");
+  console.log(displayName);
+  console.log(imgUrl);
   const [channel, setChannel] = useState<Channel | null>();
   const [isFirstPlayer, setIsFirstPlayer] = useState(false);
   const { mutate: leaveGame } = api.game.leaveGame.useMutation();
   const peerRef = useRef<SimplePeer.Instance | null>(null);
+  const [localPos, setLocalPos] = useState<PlayerState>({
+    y: 150,
+    name: displayName,
+    picUrl: imgUrl,
+  });
 
   useEffect(() => {
     const handleUnload = () => {
@@ -72,14 +86,44 @@ export default function GameRoom({ gameid }: GameRoomProps) {
         console.log("🎉 Peer connection established!");
         setConnected(true);
         newPeer.send(
-          "Hello from " + (isFirstPlayer ? "first" : "second") + " player!",
+          JSON.stringify({
+            type: "initialState",
+            data: {
+              npub: userNpub,
+              y: 250,
+              name: displayName,
+              picUrl: imgUrl,
+            },
+          }),
         );
       });
 
-      type PeerData = string | Uint8Array;
+      type PeerData = Uint8Array;
       type PeerError = Error;
       newPeer.on("data", (data: PeerData) => {
         console.log("📨 Received data:", data);
+        const message = JSON.parse(new TextDecoder().decode(data));
+        console.log(message);
+
+        if (message.type === "initialState") {
+          setRemotePos((prev) => ({
+            ...prev,
+            [message.data.npub]: {
+              y: message.data.y,
+              name: message.data.name,
+              picUrl: message.data.picUrl,
+            },
+          }));
+        } else if (message.type === "updatePosition") {
+          setRemotePos((prev) => ({
+            ...prev,
+            [message.data.npub]: {
+              y: message.data.y,
+              name: message.data.name,
+              picUrl: message.data.picUrl,
+            },
+          }));
+        }
       });
 
       newPeer.on("error", (err: PeerError) => {
@@ -178,6 +222,14 @@ export default function GameRoom({ gameid }: GameRoomProps) {
         <div>Role: {isFirstPlayer ? "First Player" : "Second Player"}</div>
         <div>Status: {connected ? "🟢 Connected" : "🔴 Disconnected"}</div>
       </div>
+      <FlappyBirdGame
+        localPos={localPos}
+        remotePos={remotePos}
+        setLocalPos={setLocalPos}
+        peer={peerRef.current}
+        connected={connected}
+        userNpub={(userNpub ?? isFirstPlayer) ? "Player 1" : "Player 2"}
+      />
       <Button onClick={() => sendTestMessage()}>test</Button>
     </div>
   );
