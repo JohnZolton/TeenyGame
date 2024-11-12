@@ -86,6 +86,11 @@ export default function GameRoom({ gameid }: GameRoomProps) {
         console.error("❌ Peer error:", err);
       });
 
+      newPeer.on("close", () => {
+        console.log("💔 Peer connection closed");
+        setConnected(false);
+      });
+
       peerRef.current = newPeer;
       setPeer(newPeer);
       return newPeer;
@@ -98,22 +103,27 @@ export default function GameRoom({ gameid }: GameRoomProps) {
     console.log("Setting up presence channel...");
     const channel = pusherClient.subscribe(`presence-game-${gameid}`);
 
-    channel.bind("pusher:subscription_succeeded", () => {
-      console.log("✅ Channel subscribed");
+    channel.bind(
+      "pusher:subscription_succeeded",
+      (members: { count: number; me: Members }) => {
+        console.log("✅ Channel subscribed");
 
-      // If we're the first player and there are 2 members, initiate the connection
-      if (isFirstPlayer) {
-        console.log("First player creating initiator peer");
-        createPeer(true);
-      }
-    });
+        // If we're the first player and there are 2 members, initiate the connection
+        if (isFirstPlayer && members.count === 2) {
+          console.log("Creating initiator peer");
+          createPeer(true);
+        } else {
+          createPeer(false);
+        }
+      },
+    );
 
     channel.bind("pusher:member_added", (member: Members) => {
       console.log("👋 Member joined:", member);
       // If we're the second player, create our peer (non-initiator)
-      if (!isFirstPlayer) {
+      if (isFirstPlayer) {
         console.log("Second player creating receiver peer");
-        createPeer(false);
+        createPeer(true);
       }
     });
 
