@@ -10,7 +10,7 @@ interface AuthComponentProps {
 
 export default function SignedIn({ children }: AuthComponentProps) {
   const { user, authHeader } = useAuth();
-  if (!authHeader) {
+  if (authHeader) {
     return null;
   }
   return <>{children}</>;
@@ -18,7 +18,7 @@ export default function SignedIn({ children }: AuthComponentProps) {
 
 export function SignedOut({ children }: AuthComponentProps) {
   const { user, authHeader } = useAuth();
-  if (authHeader) {
+  if (!authHeader) {
     return null;
   }
   return <>{children}</>;

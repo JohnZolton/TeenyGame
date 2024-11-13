@@ -18,6 +18,7 @@ export interface Players {
 }
 export interface PlayerState {
   y: number;
+  velocity: number;
   name: string | null;
   picUrl: string | null;
 }
@@ -39,11 +40,12 @@ export default function GameRoom({ gameid }: GameRoomProps) {
     y: 150,
     name: displayName,
     picUrl: imgUrl,
+    velocity: 0,
   });
 
   useEffect(() => {
     const handleUnload = () => {
-      leaveGame({ gameId: parseInt(gameid), userId: userNpub ?? "" });
+      leaveGame({ gameId: gameid, userId: userNpub ?? "" });
     };
 
     window.addEventListener("beforeunload", handleUnload);
@@ -57,6 +59,16 @@ export default function GameRoom({ gameid }: GameRoomProps) {
   useEffect(() => {
     setIsFirstPlayer(window.location.hash === "#init");
   }, []);
+
+  useEffect(() => {
+    const storedNpub = localStorage.getItem("userNpub");
+    if (storedNpub) {
+      setUserNpub(storedNpub);
+    } else {
+      // Set a default or fetch from a server
+      setUserNpub(isFirstPlayer ? "Player 1" : "Player 2");
+    }
+  }, [isFirstPlayer]);
 
   // Create and manage peer connection
   const createPeer = useCallback(
@@ -90,7 +102,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
             type: "initialState",
             data: {
               npub: userNpub,
-              y: 250,
+              y: 150,
               name: displayName,
               picUrl: imgUrl,
             },
@@ -118,11 +130,12 @@ export default function GameRoom({ gameid }: GameRoomProps) {
           setRemotePos((prev) => ({
             ...prev,
             [message.data.npub]: {
+              ...prev[message.data.npub],
               y: message.data.y,
-              name: message.data.name,
-              picUrl: message.data.picUrl,
+              velocity: message.data.velocity,
             },
           }));
+          console.log("Updated remotePos with updatePosition:", remotePos);
         }
       });
 
@@ -151,6 +164,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
       "pusher:subscription_succeeded",
       (members: { count: number; me: Members }) => {
         console.log("✅ Channel subscribed");
+        console.log("count: ", members.count);
 
         // If we're the first player and there are 2 members, initiate the connection
         if (isFirstPlayer && members.count === 2) {
@@ -216,7 +230,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
   };
 
   return (
-    <div className="relative h-[500px] w-full bg-sky-200">
+    <div className="">
       <div className="mb-4">
         <div>Channel: {channel?.name}</div>
         <div>Role: {isFirstPlayer ? "First Player" : "Second Player"}</div>
@@ -228,7 +242,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
         setLocalPos={setLocalPos}
         peer={peerRef.current}
         connected={connected}
-        userNpub={(userNpub ?? isFirstPlayer) ? "Player 1" : "Player 2"}
+        userNpub={userNpub ?? (isFirstPlayer ? "Player 1" : "Player 2")}
       />
       <Button onClick={() => sendTestMessage()}>test</Button>
     </div>

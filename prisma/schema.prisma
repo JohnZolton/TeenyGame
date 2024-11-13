@@ -290,6 +290,7 @@ enum GameStatus {
 }
 model game {
   id  String @id @default(uuid())
+  createdAt DateTime @default(now())
   players player[]
   status GameStatus
   gameName String

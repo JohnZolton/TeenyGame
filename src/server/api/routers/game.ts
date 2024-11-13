@@ -2,22 +2,33 @@ import { z } from "zod";
 import { GameStatus } from "@prisma/client";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { pusher } from "~/lib/pusher";
 
 export const gameRouter = createTRPCRouter({
   getGames: publicProcedure.query(async ({ ctx }) => {
-    return (
-      ctx.db.game.findMany({
-        where: {
-          status: GameStatus.waiting,
+    void ctx.db.game.deleteMany({
+      where: {
+        players: {
+          none: {},
         },
-        include: {
-          players: true,
+      },
+    });
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const games = await ctx.db.game.findMany({
+      where: {
+        status: GameStatus.waiting,
+        createdAt: {
+          gte: thirtyMinutesAgo,
         },
-        orderBy: {
-          id: "desc",
-        },
-      }) ?? null
-    );
+      },
+      include: {
+        players: true,
+      },
+      orderBy: {
+        id: "asc",
+      },
+    });
+    return games.filter((game) => game.players.length !== 0);
   }),
 
   joinGame: publicProcedure
@@ -74,15 +85,13 @@ export const gameRouter = createTRPCRouter({
   leaveGame: publicProcedure
     .input(
       z.object({
-        gameId: z.number(),
+        gameId: z.string(),
         userId: z.string(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const { gameId, userId } = input;
-      return { success: true };
 
-      /*
       // Find the game and associated players
       const game = await ctx.db.game.findUnique({
         where: { id: gameId },
@@ -117,7 +126,6 @@ export const gameRouter = createTRPCRouter({
       }
 
       return { success: true };
-      */
     }),
   finishGame: publicProcedure
     .input(
@@ -145,7 +153,7 @@ export const gameRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.db.game.create({
+      const newGame = ctx.db.game.create({
         data: {
           status: GameStatus.waiting,
           gameName: input.gameName,
@@ -157,6 +165,12 @@ export const gameRouter = createTRPCRouter({
             },
           },
         },
+        include: {
+          players: true,
+        },
       });
+      console.log(newGame);
+      void pusher.trigger("game-events", "gameCreated", newGame);
+      return newGame;
     }),
 });
