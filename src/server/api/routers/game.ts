@@ -153,7 +153,7 @@ export const gameRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const newGame = ctx.db.game.create({
+      const newGame = await ctx.db.game.create({
         data: {
           status: GameStatus.waiting,
           gameName: input.gameName,

@@ -46,44 +46,42 @@ export function GameLobby() {
 
   return (
     <div>
-      <div>
-        {games?.map((game) => (
-          <div key={game.id} className="mb-4 rounded-lg border p-4">
-            <h2 className="text-xl">{game.gameName}</h2>
-            <p>Players:</p>
-            {game.players?.map((player, index) => (
-              <div
-                key={`${game.id}-${index}`}
-                className="flex items-center justify-start"
-              >
-                {player.image && (
-                  <img
-                    src={player.image}
-                    className="h-10 w-10 rounded-full object-cover"
-                  />
-                )}
-                <div>{player.name}</div>
-              </div>
-            ))}
-            <button
-              onClick={() => {
-                joinGame({ gameId: game.id, playerId: userNpub ?? "" });
-                router.push(`/games/${game.id}`);
-              }}
-              className="mt-2 rounded bg-blue-500 px-4 py-2 hover:bg-blue-600"
+      {games?.map((game) => (
+        <div key={game.id} className="mb-4 rounded-lg border p-4">
+          <h2 className="text-xl">{game.gameName}</h2>
+          <p>Players:</p>
+          {game.players?.map((player, index) => (
+            <div
+              key={`${game.id}-${index}`}
+              className="flex items-center justify-start"
             >
-              Join Game
-            </button>
-          </div>
-        ))}
-      </div>
+              {player.image && (
+                <img
+                  src={player.image}
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+              )}
+              <div>{player.name}</div>
+            </div>
+          ))}
+          <button
+            onClick={() => {
+              joinGame({ gameId: game.id, playerId: userNpub ?? "" });
+              router.push(`/games/${game.id}`);
+            }}
+            className="mt-2 rounded bg-blue-500 px-4 py-2 hover:bg-blue-600"
+          >
+            Join Game
+          </button>
+        </div>
+      ))}
       <button
         disabled={!(userNpub ?? imgUrl ?? displayName)}
         onClick={() =>
           newGame({
             playerId: userNpub!,
             image: imgUrl!,
-            name: displayName!,
+            name: displayName ?? "Guest",
             gameName: "Flappy-Bird",
           })
         }

@@ -21,6 +21,7 @@ export interface PlayerState {
   velocity: number;
   name: string | null;
   picUrl: string | null;
+  image?: HTMLImageElement;
 }
 
 export default function GameRoom({ gameid }: GameRoomProps) {
@@ -30,8 +31,6 @@ export default function GameRoom({ gameid }: GameRoomProps) {
   const [userNpub, setUserNpub] = useState<string | null>();
   const displayName = localStorage.getItem("displayName");
   const imgUrl = localStorage.getItem("profileImage");
-  console.log(displayName);
-  console.log(imgUrl);
   const [channel, setChannel] = useState<Channel | null>();
   const [isFirstPlayer, setIsFirstPlayer] = useState(false);
   const { mutate: leaveGame } = api.game.leaveGame.useMutation();
@@ -102,7 +101,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
             type: "initialState",
             data: {
               npub: userNpub,
-              y: 150,
+              y: 250,
               name: displayName,
               picUrl: imgUrl,
             },
@@ -222,15 +221,8 @@ export default function GameRoom({ gameid }: GameRoomProps) {
     };
   }, [gameid, isFirstPlayer, createPeer]);
 
-  // Test button to verify connection
-  const sendTestMessage = () => {
-    if (peerRef.current?.connected) {
-      peerRef.current.send("Test message at " + new Date().toISOString());
-    }
-  };
-
   return (
-    <div className="">
+    <div className="flex flex-col items-center justify-center">
       <div className="mb-4">
         <div>Channel: {channel?.name}</div>
         <div>Role: {isFirstPlayer ? "First Player" : "Second Player"}</div>
@@ -239,12 +231,10 @@ export default function GameRoom({ gameid }: GameRoomProps) {
       <FlappyBirdGame
         localPos={localPos}
         remotePos={remotePos}
-        setLocalPos={setLocalPos}
         peer={peerRef.current}
         connected={connected}
         userNpub={userNpub ?? (isFirstPlayer ? "Player 1" : "Player 2")}
       />
-      <Button onClick={() => sendTestMessage()}>test</Button>
     </div>
   );
 }
