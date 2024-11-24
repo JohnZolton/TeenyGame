@@ -2,53 +2,242 @@
 import SimplePeer from "simple-peer";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Players, PlayerState } from "./gameroom";
 import { object } from "zod";
 import { GamepadIcon } from "lucide-react";
+import { init } from "next/dist/compiled/webpack/webpack";
+import { start } from "repl";
 
 interface FlappyBirdGameProps {
-  localPos: PlayerState;
-  remotePos: Players;
   peer: SimplePeer.Instance | null;
-  connected: boolean;
   userNpub: string | null;
+  displayName: string | null;
+  imgUrl: string | null;
+}
+export type Players = Record<string, PlayerState>;
+export interface PlayerState {
+  y: number;
+  velocity: number;
+  name?: string | null | undefined;
+  picUrl?: string | null | undefined;
+  image?: HTMLImageElement;
+}
+interface Obstacle {
+  x: number;
+  height: number;
 }
 
 const FlappyBirdGame = ({
-  localPos,
-  remotePos,
   peer,
-  connected,
   userNpub,
+  displayName,
+  imgUrl,
 }: FlappyBirdGameProps) => {
+  const baseGravity = 15;
+  const baseInterval = 16;
+  const baseObstacleSpeed = 50;
+  const initialHeight = 250;
+  const initialVelocity = 0;
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const birdPositionRef = useRef(250);
+  const birdPositionRef = useRef(initialHeight);
   const gameLoopRef = useRef<number>();
   const gameStartedRef = useRef(false);
   const velocityRef = useRef(0);
-  const [gameStarted, setGameStarted] = useState(false);
-  const obstaclesRef = useRef<{ x: number; height: number }[]>([]);
+  const obstaclesRef = useRef<Obstacle[]>([]);
   const imagesRef = useRef<Record<string, HTMLImageElement>>({});
+  const isHost = useRef(false);
+  const otherPlayers = useRef<Players>({});
+  const [isGameStarted, setIsGameStarted] = useState(false);
+  const maxOtherPlayer = useRef(0);
+  const hostDiceRoll = useRef(Math.random());
+
   const GAME_CONFIG = {
-    gravity: 1,
+    gravity: baseGravity / baseInterval,
     jumpForce: -15,
     terminalVelocity: 10,
     obstacleGap: 200,
     obstacleWidth: 50,
-    obstacleSpeed: 3,
+    startY: initialHeight,
+    obstacleSpeed: baseObstacleSpeed / baseInterval,
     canvasWidth: 500,
     canvasHeight: 500,
     birdRadius: 20,
     birdX: 140,
-    updateInterval: 16,
+    updateInterval: baseInterval,
   };
+
+  // determine randomly
+
+  type PeerData = Uint8Array;
+  enum MessageType {
+    initialState,
+    startGame,
+    endGame,
+    updatePosition,
+    determineHost,
+    updateObstacles,
+  }
+  interface InitialStateMessage {
+    type: MessageType.initialState;
+    data: {
+      npub: string;
+      name: string;
+      picUrl: string;
+    };
+  }
+  interface StartGameMessage {
+    type: MessageType.startGame;
+    data: {
+      npub: string;
+      name: string;
+      picUrl: string;
+    };
+  }
+
+  interface EndGameMessage {
+    type: MessageType.endGame;
+    data: {
+      npub: string;
+      name: string;
+      picUrl: string;
+      players: Players;
+    };
+  }
+  interface UpdatePositionMessage {
+    type: MessageType.updatePosition;
+    data: {
+      npub: string;
+      y: number;
+      velocity: number;
+      obstacles: Obstacle[];
+    };
+  }
+  interface DetermineHostMessage {
+    type: MessageType.determineHost;
+    data: {
+      npub: string;
+      val: number;
+    };
+  }
+  type Message =
+    | InitialStateMessage
+    | StartGameMessage
+    | EndGameMessage
+    | UpdatePositionMessage
+    | DetermineHostMessage;
+  peer?.on("data", (data: PeerData) => {
+    //console.log("📨 Received data:", data);
+    const message: Message = JSON.parse(
+      new TextDecoder().decode(data),
+    ) as Message;
+    //console.log(message);
+
+    if (message.type === MessageType.determineHost) {
+      determineHost();
+      otherPlayers.current = {
+        ...otherPlayers.current,
+        [message.data.npub]: {
+          ...otherPlayers.current[message.data.npub],
+          y: initialHeight,
+          velocity: initialVelocity,
+        },
+      };
+    }
+
+    if (message.type === MessageType.startGame) {
+      startGame();
+      console.log("game started");
+    }
+
+    if (message.type === MessageType.endGame) {
+      endGame();
+      console.log("game ended");
+    }
+
+    if (message.type === MessageType.updatePosition && otherPlayers.current) {
+      otherPlayers.current = {
+        ...otherPlayers.current,
+        [message.data.npub]: {
+          ...otherPlayers.current[message.data.npub],
+          y: message.data.y,
+          velocity: message.data.velocity,
+        },
+      };
+      if (!isHost.current) {
+        obstaclesRef.current = message.data.obstacles;
+      }
+    }
+
+    if (message.type === MessageType.determineHost) {
+      console.log(message.data);
+      maxOtherPlayer.current = Math.max(
+        maxOtherPlayer.current,
+        message.data.val,
+      );
+      isHost.current = hostDiceRoll.current > maxOtherPlayer.current;
+      console.log("host updated, ishost: ", isHost.current);
+    }
+  });
+
+  const sendEndGame = useCallback(() => {
+    peer?.send(
+      JSON.stringify({
+        type: "endGame",
+        data: { started: true },
+      }),
+    );
+  }, [peer]);
+
+  const endGame = useCallback(() => {
+    gameStartedRef.current = false;
+    setIsGameStarted(false);
+    birdPositionRef.current = GAME_CONFIG.startY;
+    velocityRef.current = GAME_CONFIG.gravity;
+    obstaclesRef.current = [];
+    if (otherPlayers.current) {
+      Object.entries(otherPlayers.current).forEach(([npub, player]) => {
+        otherPlayers.current[npub] = {
+          ...player,
+          y: GAME_CONFIG.startY,
+          velocity: GAME_CONFIG.gravity,
+        };
+      });
+    }
+  }, [peer]);
+
+  const determineHost = useCallback(() => {
+    hostDiceRoll.current = Math.random();
+    peer?.send(
+      JSON.stringify({
+        type: "determineHost",
+        data: { val: hostDiceRoll.current },
+      }),
+    );
+  }, [peer]);
+
+  const startGame = useCallback(() => {
+    gameStartedRef.current = true;
+    setIsGameStarted(true);
+  }, []);
+  const sendStartGame = useCallback(() => {
+    peer?.send(
+      JSON.stringify({
+        type: "startGame",
+        data: { started: true },
+      }),
+    );
+  }, [peer]);
 
   const sendMessage = useCallback(() => {
     if (peer?.connected && userNpub) {
       peer.send(
         JSON.stringify({
           type: "updatePosition",
-          data: { npub: userNpub, y: birdPositionRef.current },
+          data: {
+            npub: userNpub,
+            y: birdPositionRef.current,
+            obstacles: obstaclesRef.current,
+          },
         }),
       );
     }
@@ -56,7 +245,7 @@ const FlappyBirdGame = ({
 
   const jump = useCallback(() => {
     velocityRef.current = GAME_CONFIG.jumpForce;
-  }, [gameStarted]);
+  }, []);
 
   function clearCanvas(ctx: CanvasRenderingContext2D | null | undefined) {
     if (!canvasRef.current || !ctx) {
@@ -82,7 +271,7 @@ const FlappyBirdGame = ({
     ctx.restore();
     drawCircularImage(
       ctx,
-      localPos.picUrl,
+      imgUrl,
       GAME_CONFIG.birdX,
       birdPositionRef.current,
       "green",
@@ -90,53 +279,70 @@ const FlappyBirdGame = ({
   }
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (!gameStarted) {
-        setGameStarted(true);
-        gameStartedRef.current = true;
-      } else {
-        if (e.code === "Space") {
+      if (e.code === "Space") {
+        if (!isGameStarted) {
+          startGame();
+          sendStartGame();
+        } else {
           jump();
-          e.preventDefault();
         }
+        e.preventDefault();
       }
     };
 
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!gameStarted) {
+    if (!gameStartedRef.current) {
       drawStartMessage(ctx);
     } else {
       clearCanvas(ctx);
     }
 
-    function handleCanvasClick() {
-      if (!gameStarted) {
-        setGameStarted(true);
+    function handleCanvasClick(e: MouseEvent) {
+      if (!isGameStarted) {
+        startGame();
+        sendStartGame();
+      } else {
+        jump();
       }
+      e.preventDefault();
     }
     canvas?.addEventListener("click", handleCanvasClick);
     window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [gameStarted, jump]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyPress);
+      canvas?.removeEventListener("click", handleCanvasClick);
+    };
+  }, [startGame, isGameStarted, jump]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!gameStartedRef.current) {
+      drawStartMessage(ctx);
+    }
+  }, [isGameStarted, imgUrl]);
 
   //cache profile pictures
   useEffect(() => {
-    if (localPos.picUrl && !imagesRef.current[localPos.picUrl]) {
+    if (imgUrl && !imagesRef.current[imgUrl]) {
       const img = new Image();
-      img.src = localPos.picUrl;
-      imagesRef.current[localPos.picUrl] = img;
+      img.src = imgUrl;
+      imagesRef.current[imgUrl] = img;
     }
-    Object.keys(remotePos).forEach((npub) => {
-      if (
-        remotePos[npub]?.picUrl &&
-        !imagesRef.current[remotePos[npub].picUrl]
-      ) {
-        const remoteImage = new Image();
-        remoteImage.src = remotePos[npub]?.picUrl;
-        imagesRef.current[remotePos[npub].picUrl] = remoteImage;
-      }
-    });
-  }, [localPos.picUrl, remotePos]);
+    if (otherPlayers.current) {
+      Object.keys(otherPlayers.current).forEach((npub) => {
+        const player = otherPlayers.current[npub];
+
+        const picUrl = player?.picUrl;
+        if (picUrl && !imagesRef.current?.[picUrl]) {
+          const remoteImage = new Image();
+          remoteImage.src = picUrl;
+          imagesRef.current[picUrl] = remoteImage;
+        }
+      });
+    }
+  }, [imgUrl, otherPlayers]);
 
   function drawCircularImage(
     ctx: CanvasRenderingContext2D,
@@ -169,7 +375,7 @@ const FlappyBirdGame = ({
   }
 
   useEffect(() => {
-    if (!gameStarted) {
+    if (!isGameStarted) {
       return;
     }
     const canvas = canvasRef.current;
@@ -198,9 +404,10 @@ const FlappyBirdGame = ({
         .filter((obstacle) => obstacle.x + GAME_CONFIG.obstacleWidth > 0);
 
       if (
-        obstaclesRef.current.length === 0 ||
-        obstaclesRef.current[obstaclesRef.current.length - 1]!.x <
-          GAME_CONFIG.canvasWidth - 200
+        isHost.current &&
+        (obstaclesRef.current.length === 0 ||
+          obstaclesRef.current[obstaclesRef.current.length - 1]!.x <
+            GAME_CONFIG.canvasWidth - 200)
       ) {
         obstaclesRef.current.push({
           x: GAME_CONFIG.canvasWidth,
@@ -210,6 +417,7 @@ const FlappyBirdGame = ({
         });
       }
 
+      //collision detection
       for (const obstacle of obstaclesRef.current) {
         // Bird's circle center and radius
         const birdCenterY = birdPositionRef.current;
@@ -267,11 +475,8 @@ const FlappyBirdGame = ({
             topRect,
           )
         ) {
-          gameStartedRef.current = false;
-          setGameStarted(false);
-          birdPositionRef.current = 250;
-          velocityRef.current = GAME_CONFIG.gravity;
-          obstaclesRef.current = [];
+          endGame();
+          sendEndGame();
           return;
         }
       }
@@ -284,21 +489,23 @@ const FlappyBirdGame = ({
 
       drawCircularImage(
         ctx,
-        localPos.picUrl,
+        imgUrl,
         GAME_CONFIG.birdX,
         birdPositionRef.current,
         "green",
       );
 
       //draw other birds
-      Object.entries(remotePos).forEach(([npub, player]) => {
-        drawCircularImage(
-          ctx,
-          player.picUrl,
-          GAME_CONFIG.birdX,
-          player.y ?? GAME_CONFIG.canvasHeight / 2,
-          localPos.picUrl ? "red" : "#f43f5e",
-        );
+      Object.entries(otherPlayers.current).forEach(([npub, player]) => {
+        if (player.picUrl) {
+          drawCircularImage(
+            ctx,
+            player.picUrl,
+            GAME_CONFIG.birdX,
+            player.y ?? GAME_CONFIG.canvasHeight / 2,
+            player.picUrl ? "red" : "#f43f5e",
+          );
+        }
       });
 
       ctx.fillStyle = "#2563eb";
@@ -328,7 +535,13 @@ const FlappyBirdGame = ({
         cancelAnimationFrame(gameLoopRef.current);
       }
     };
-  }, [gameStarted, birdPositionRef, obstaclesRef, remotePos]);
+  }, [
+    gameStartedRef,
+    isGameStarted,
+    birdPositionRef,
+    obstaclesRef,
+    otherPlayers,
+  ]);
 
   return (
     <div>
