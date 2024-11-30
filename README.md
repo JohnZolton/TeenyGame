@@ -7,9 +7,9 @@ TeenyGame is a peer-to-peer gaming platform leveraging [Nostr](https://github.co
 ## Development Roadmap
 
 - [x] Nostr authentication integration
-- [ ] Make a fun game (Wordle? PvP Flappy Bird? Poker? will start with something easy)
-- [ ] Lobby
+- [x] Lobby
+- [x] Make a fun game (for now, flappy bird)
+- [ ] Bet sats/ecash/zaps
 - [ ] Private/public matches
-- [ ] Bet sats
 - [ ] Voice/text chat?
 - [ ] Elo system?
