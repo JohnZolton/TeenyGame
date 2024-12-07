@@ -15,17 +15,14 @@ import {
   getEncodedTokenV4,
   MintQuoteState,
   MintPayload,
+  MintKeys,
 } from "@cashu/cashu-ts";
 import { Init } from "v8";
 import { randomBytes, sign } from "crypto";
 
 const TEENYGAME_NPUB =
   "npub17rsxrp635f6pkc3cldnzckjc9mnzxakptm8arhvk2paqf7ms7kxsvulg2x";
-const mintUrl = "https://testnut.cashu.space";
-const mint = new CashuMint(mintUrl);
-const wallet = new CashuWallet(mint);
-await wallet.loadMint();
-//localStorage.setItem("wallet-Keys", wallet.keys) ??
+const MINT_URL = "https://testnut.cashu.space";
 
 interface GameRoomProps {
   gameid: string;
@@ -34,8 +31,7 @@ interface GameRoomProps {
 export default function GameRoom({ gameid }: GameRoomProps) {
   const [connected, setConnected] = useState(false);
   const [userNpub, setUserNpub] = useState<string | null>();
-  const displayName = localStorage.getItem("displayName");
-  const imgUrl = localStorage.getItem("profileImage");
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [channel, setChannel] = useState<Channel | null>();
   const [isFirstPlayer, setIsFirstPlayer] = useState(false);
   const { mutate: leaveGame } = api.game.leaveGame.useMutation();
@@ -44,6 +40,45 @@ export default function GameRoom({ gameid }: GameRoomProps) {
   const [otherNpub, setOtherNpub] = useState<string>();
   const [otherName, setOtherName] = useState<string>();
   const [otherImgUrl, setOtherImgUrl] = useState<string>();
+
+  const [wallet, setWallet] = useState<CashuWallet | null>(null);
+
+  // Initialize wallet and load browser-specific data
+  useEffect(() => {
+    const initWallet = async () => {
+      try {
+        const mint = new CashuMint(MINT_URL);
+        // Load wallet keys from localStorage if they exist
+        let newWallet;
+        const savedKeys = localStorage.getItem(
+          "wallet-Keys",
+        ) as unknown as MintKeys;
+        if (savedKeys) {
+          newWallet = new CashuWallet(mint, { keys: savedKeys });
+        } else {
+          newWallet = new CashuWallet(mint);
+        }
+        await newWallet.loadMint();
+
+        setWallet(newWallet);
+
+        localStorage.setItem("wallet-Keys", JSON.stringify(newWallet.keys));
+      } catch (error) {
+        console.error("Failed to initialize wallet:", error);
+      }
+    };
+
+    const loadBrowserData = () => {
+      const storedDisplayName = localStorage.getItem("displayName");
+      setDisplayName(storedDisplayName);
+    };
+
+    void initWallet();
+    loadBrowserData();
+  }, []);
+
+  const imgUrl =
+    typeof window !== "undefined" ? localStorage.getItem("profileImage") : null;
 
   useEffect(() => {
     const handleUnload = () => {
@@ -67,7 +102,6 @@ export default function GameRoom({ gameid }: GameRoomProps) {
     if (storedNpub) {
       setUserNpub(storedNpub);
     } else {
-      // Set a default or fetch from a server
       setUserNpub(isFirstPlayer ? "Player 1" : "Player 2");
     }
   }, [isFirstPlayer]);
@@ -227,6 +261,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
           otherName={otherName}
           otherNpub={otherNpub}
           myNpub={userNpub}
+          wallet={wallet}
         />
       </div>
     </div>
@@ -239,6 +274,7 @@ interface CashuAreaProps {
   otherName: string | undefined;
   otherImgUrl: string | undefined;
   myNpub: string | null | undefined;
+  wallet: CashuWallet | null;
 }
 
 interface ReceiveCashMessage {
@@ -268,15 +304,20 @@ function CashuArea({
   otherNpub,
   otherName,
   myNpub,
+  wallet,
 }: CashuAreaProps) {
   const [proofs, setProofs] = useState<Proof[]>([]);
 
   const createLockedEcash = useCallback(async () => {
-    if (peer?.connected) {
-      const amount = 32;
-      const { keep, send } = await wallet.send(amount, proofs);
-
+    if (peer?.connected && wallet) {
       if (!myNpub || !otherNpub) return;
+      const amount = 33;
+      const { keep, send } = await wallet.send(amount, proofs, {
+        includeFees: true,
+      });
+      const totalInput = send.reduce((sum, proof) => sum + proof.amount, 0);
+      const feeAmount = totalInput - amount;
+      console.log("FEE AMOUNT: ", feeAmount);
 
       setProofs(keep);
 
@@ -288,37 +329,70 @@ function CashuArea({
         additionalPubkeys: [otherNpub],
       });
 
-      const keysetId = send[0]?.id;
-      if (!keysetId) return;
-      const { blindedMessage, blindingFactor } =
-        CashuMultiSig.createBlindedMessage(amount, keysetId);
+      let remainingFee = feeAmount;
+      const feeProofIndices: number[] = [];
+      const spendableProofs = [...send];
 
-      const response = await fetch(`${mintUrl}/v1/mint`, {
+      for (let i = 0; i < spendableProofs.length && remainingFee > 0; i++) {
+        if (spendableProofs[i]!.amount <= remainingFee) {
+          remainingFee -= spendableProofs[i]!.amount;
+          feeProofIndices.push(i);
+        }
+      }
+      const proofsForBlinding = spendableProofs.filter(
+        (_, index) => !feeProofIndices.includes(index),
+      );
+
+      const { blindedMessages, blindingFactors } = proofsForBlinding.reduce(
+        (acc, proof, index) => {
+          const { blindedMessage, blindingFactor } =
+            CashuMultiSig.createBlindedMessage(proof.amount, proof.id);
+          return {
+            blindedMessages: [...acc.blindedMessages, blindedMessage],
+            blindingFactors: [...acc.blindingFactors, blindingFactor],
+          };
+        },
+        {
+          blindedMessages: [] as BlindedMessage[],
+          blindingFactors: [] as bigint[],
+        },
+      );
+
+      const response = await fetch(`${MINT_URL}/v1/swap`, {
         method: "POST",
-        body: JSON.stringify({ outputs: [blindedMessage] }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inputs: send, outputs: blindedMessages }),
       });
       interface MintResponse {
         signatures: BlindSignature[];
       }
       const { signatures } = (await response.json()) as MintResponse;
+      console.log("REC'd SIGS: ", signatures);
+
       if (!signatures) return;
 
-      const proof = CashuMultiSig.createProofFromBlindSignature({
-        amount,
-        keysetId: keysetId,
-        mintPublicKey: ProjectivePoint.fromHex(wallet.mintInfo.pubkey),
-        blindSignature: signatures[0]!.C_,
-        blindingFactor,
-        secret,
+      const newProofs = signatures.map((signature, index) => {
+        return CashuMultiSig.createProofFromBlindSignature({
+          amount: signatures[index]?.amount ?? 0,
+          keysetId: send[index]?.id ?? "", //need keyset id from proof???
+          mintPublicKey: ProjectivePoint.fromHex(wallet.mintInfo.pubkey),
+          blindSignature: signature.C_,
+          blindingFactor: blindingFactors[index] ?? BigInt(1),
+          secret,
+        });
       });
-      return proof;
+
+      console.log("new proofs: ", newProofs);
+      return newProofs;
     }
   }, [peer, proofs, otherNpub, myNpub]);
 
   const sendCash = useCallback(async () => {
-    if (peer?.connected) {
+    if (peer?.connected && wallet) {
       const { keep, send } = await wallet.send(32, proofs);
-      const token = getEncodedTokenV4({ mint: mintUrl, proofs: send });
+      const token = getEncodedTokenV4({ mint: MINT_URL, proofs: send });
 
       peer.send(
         JSON.stringify({
@@ -338,7 +412,7 @@ function CashuArea({
         new TextDecoder().decode(data),
       ) as ReceivedMessage;
 
-      if (message.type === PeerMessages.sendCash) {
+      if (message.type === PeerMessages.sendCash && wallet) {
         const receivedProofs = await wallet.receive(message.data.token);
         setProofs((prev) => [...prev, ...receivedProofs]);
       }
@@ -350,6 +424,7 @@ function CashuArea({
   }, [proofs]);
 
   async function mintTokens() {
+    if (!wallet) return;
     const mintQuote = await wallet.createMintQuote(64);
     const mintQuoteChecked = await wallet.checkMintQuote(mintQuote.quote);
     if (mintQuoteChecked.state === MintQuoteState.PAID) {
