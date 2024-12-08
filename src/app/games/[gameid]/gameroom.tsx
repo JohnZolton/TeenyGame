@@ -1,4 +1,5 @@
 "use client";
+import { WindowNostr } from "nostr-tools/nip07";
 import { useCallback, useEffect, useRef, useState } from "react";
 import SimplePeer from "simple-peer";
 import { pusher, pusherClient } from "~/lib/pusher";
@@ -19,6 +20,13 @@ import {
 } from "@cashu/cashu-ts";
 import { Init } from "v8";
 import { randomBytes, sign } from "crypto";
+import NDK, { NDKEvent, NDKNip07Signer } from "@nostr-dev-kit/ndk";
+import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+import { sha256 } from "@noble/hashes/sha256";
+import * as secp256k1 from "@noble/secp256k1";
+import { hmac } from "@noble/hashes/hmac";
+import { nip19 } from "nostr-tools";
 
 const TEENYGAME_NPUB =
   "npub17rsxrp635f6pkc3cldnzckjc9mnzxakptm8arhvk2paqf7ms7kxsvulg2x";
@@ -40,6 +48,42 @@ export default function GameRoom({ gameid }: GameRoomProps) {
   const [otherNpub, setOtherNpub] = useState<string>();
   const [otherName, setOtherName] = useState<string>();
   const [otherImgUrl, setOtherImgUrl] = useState<string>();
+
+  const [hiddenNpub, setHiddenNpub] = useState("");
+  const [hiddenNsec, setHiddenNsec] = useState("");
+  const [otherHiddenNpub, setOtherHiddenNpub] = useState("");
+
+  const STORAGE_KEY = "nostr_keys";
+
+  function getOrCreateHiddenNsec() {
+    const existingKeys = localStorage.getItem(STORAGE_KEY);
+    if (existingKeys) {
+      try {
+        const parsed = JSON.parse(existingKeys) as HiddenNostrKey;
+        setHiddenNpub(parsed.npub);
+        setHiddenNsec(parsed.nsec);
+        return {
+          nsec: parsed.nsec,
+          npub: parsed.npub,
+        };
+      } catch (e) {
+        console.warn("invalid keys in local storage, creating new ones");
+      }
+    }
+    const privateKey = generateSecretKey();
+    const publicKey = getPublicKey(privateKey);
+    const privateHexKey = bytesToHex(privateKey);
+    setHiddenNpub(publicKey);
+    setHiddenNsec(privateHexKey);
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ nsec: privateHexKey, npub: publicKey }),
+    );
+  }
+
+  useEffect(() => {
+    getOrCreateHiddenNsec();
+  }, []);
 
   const [wallet, setWallet] = useState<CashuWallet | null>(null);
 
@@ -140,6 +184,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
               npub: userNpub,
               name: displayName,
               picUrl: imgUrl,
+              hiddenNpub: hiddenNpub,
             },
           }),
         );
@@ -154,6 +199,7 @@ export default function GameRoom({ gameid }: GameRoomProps) {
           setOtherImgUrl(message.data.picUrl);
           setOtherNpub(message.data.npub);
           setOtherName(message.data.name);
+          setOtherHiddenNpub(message.data.hiddenNpub);
         }
       });
 
@@ -262,6 +308,10 @@ export default function GameRoom({ gameid }: GameRoomProps) {
           otherNpub={otherNpub}
           myNpub={userNpub}
           wallet={wallet}
+          gameId={gameid}
+          hiddenNpub={hiddenNpub}
+          hiddenNsec={hiddenNsec}
+          otherHiddenNpub={otherHiddenNpub}
         />
       </div>
     </div>
@@ -275,6 +325,10 @@ interface CashuAreaProps {
   otherImgUrl: string | undefined;
   myNpub: string | null | undefined;
   wallet: CashuWallet | null;
+  gameId: string;
+  hiddenNpub: string;
+  hiddenNsec: string;
+  otherHiddenNpub: string;
 }
 
 interface ReceiveCashMessage {
@@ -289,11 +343,16 @@ interface InitialMessage {
     npub: string;
     name: string;
     picUrl: string;
+    hiddenNpub: string;
   };
 }
 
 type ReceivedMessage = ReceiveCashMessage | InitialMessage;
 
+interface HiddenNostrKey {
+  nsec: string;
+  npub: string;
+}
 enum PeerMessages {
   initialState,
   sendCash,
@@ -305,9 +364,13 @@ function CashuArea({
   otherName,
   myNpub,
   wallet,
+  gameId,
+  hiddenNpub,
+  hiddenNsec,
+  otherHiddenNpub,
 }: CashuAreaProps) {
   const [proofs, setProofs] = useState<Proof[]>([]);
-
+  const [stakedProofs, setStakedProofs] = useState<Proof[]>([]);
   const createLockedEcash = useCallback(async () => {
     if (peer?.connected && wallet) {
       if (!myNpub || !otherNpub) return;
@@ -325,8 +388,8 @@ function CashuArea({
         basePubkey: TEENYGAME_NPUB,
         requiredSigs: 2,
         locktime: Math.floor(Date.now() / 1000 + 600), //10 minutes
-        refundPubkey: myNpub,
-        additionalPubkeys: [otherNpub],
+        refundPubkey: hiddenNpub,
+        additionalPubkeys: [otherHiddenNpub],
       });
 
       let remainingFee = feeAmount;
@@ -385,9 +448,81 @@ function CashuArea({
       });
 
       console.log("new proofs: ", newProofs);
+      setStakedProofs(newProofs);
       return newProofs;
     }
   }, [peer, proofs, otherNpub, myNpub]);
+
+  const { mutate: getGameSigs } = api.game.signWinner.useMutation({
+    onSuccess: async (teenyGameSigs) => {
+      const oneOfTwoSignedProofs = stakedProofs.map((proof, index) => ({
+        ...proof,
+        witness: {
+          signatures: teenyGameSigs?.signatures[index],
+        },
+      }));
+
+      console.log("ONE OF TWO: ", oneOfTwoSignedProofs);
+
+      // add winner sig to witness
+      // TODO need to do a nip signer and signing app
+      const signatures = await Promise.all(
+        oneOfTwoSignedProofs.map(async (proof) => {
+          const messageHash = sha256(proof.secret);
+          const signatureObj = await secp256k1.signAsync(
+            messageHash,
+            hiddenNsec,
+          );
+          console.log("sig obj: ", signatureObj.toCompactHex());
+          return signatureObj.toCompactHex();
+        }),
+      );
+      console.log(signatures);
+
+      const twoOfTwoSignedProofs = oneOfTwoSignedProofs.map((proof, index) => ({
+        ...proof,
+        witness: {
+          signatures: [proof.witness.signatures, signatures[index]],
+        },
+      }));
+
+      console.log("TWO OF TWO SIGS: ", twoOfTwoSignedProofs);
+    },
+  });
+  async function testWinnerPayout() {
+    if (wallet && myNpub) {
+      // serialize stakedProofs, send backend and get sig
+
+      const secrets = stakedProofs.map((proof) => proof.secret);
+      getGameSigs({
+        gameId: gameId,
+        winnerNpub: hiddenNpub,
+        secrets: secrets,
+      });
+
+      function isMobileDevice(): boolean {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          navigator.userAgent,
+        );
+      }
+      function hasNostrExtension(): boolean {
+        return Boolean((window as any).nostr);
+      }
+
+      try {
+        if (isMobileDevice()) {
+          console.log("TODO");
+        } else if (hasNostrExtension()) {
+          console.log("TODO");
+        }
+      } catch (error) {
+        console.error("error signing proof:", error);
+        throw error;
+      }
+
+      // send to mint
+    }
+  }
 
   const sendCash = useCallback(async () => {
     if (peer?.connected && wallet) {
@@ -445,6 +580,7 @@ function CashuArea({
         <div className="flex flex-col">
           <div>Name: {otherName}</div>
           <div>Npub: {otherNpub}</div>
+          <div>hidden Npub: {otherHiddenNpub}</div>
         </div>
         <div className="flex flex-col items-center justify-center gap-y-2">
           <Button onClick={() => mintTokens()}>Mint Test Tokens</Button>
@@ -457,6 +593,21 @@ function CashuArea({
               Create locked eCash
             </Button>
           )}
+          {stakedProofs?.map((proof, index) => (
+            <div key={`staked-${index}`} className="flex flex-col">
+              <div>{proof.C}</div>
+              <div>{proof.amount}</div>
+              <div>{proof.id}</div>
+              <div>{proof.secret}</div>
+            </div>
+          ))}
+          {peer?.connected && (
+            <Button onClick={() => testWinnerPayout()}>
+              Test winner payout
+            </Button>
+          )}
+          <div>hidden npub: {hiddenNpub}</div>
+          <div>hidden nsec: {hiddenNsec}</div>
         </div>
       </div>
     </div>
@@ -492,6 +643,9 @@ type Proof = {
   amount: number;
   secret: string;
   C: string;
+  witness?: {
+    signatures: string[];
+  };
 };
 
 class CashuMultiSig {
