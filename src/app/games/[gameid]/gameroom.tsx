@@ -378,8 +378,7 @@ function CashuArea({
       const { keep, send } = await wallet.send(amount, proofs, {
         includeFees: true,
       });
-      const totalInput = send.reduce((sum, proof) => sum + proof.amount, 0);
-      const feeAmount = totalInput - amount;
+      const feeAmount = await wallet?.getFeesForProofs(send);
       console.log("FEE AMOUNT: ", feeAmount);
 
       setProofs(keep);
@@ -486,7 +485,28 @@ function CashuArea({
         },
       }));
 
-      console.log("TWO OF TWO SIGS: ", twoOfTwoSignedProofs);
+      const formattedProofs = twoOfTwoSignedProofs.map((proof) => ({
+        ...proof,
+        witness:
+          typeof proof.witness === "string"
+            ? proof.witness
+            : JSON.stringify(proof.witness),
+      }));
+
+      console.log("TWO OF TWO SIGS: ", formattedProofs);
+      // TODO exchange signed proofs for new
+      const winnings = formattedProofs.reduce(
+        (acc, proof) => acc + proof.amount,
+        0,
+      );
+      const fees = await wallet?.getFeesForProofs(formattedProofs);
+      //ERROR DUPLICATE PROOFS
+      const cleanProofs = await wallet?.swap(
+        fees ? winnings - fees : 0,
+        formattedProofs,
+      );
+
+      console.log("CLEAN PROOFS:", cleanProofs);
     },
   });
   async function testWinnerPayout() {
@@ -659,7 +679,7 @@ class CashuMultiSig {
     const secret = [
       "P2PK",
       {
-        nonce: Buffer.from(randomBytes(32).toString("hex")),
+        nonce: randomBytes(32).toString("hex"),
         data: params.basePubkey,
         tags: [
           ["n_sigs", params.requiredSigs.toString()],
